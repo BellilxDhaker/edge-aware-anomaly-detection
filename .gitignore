@@ -1,0 +1,23 @@
+# Datasets and experiment artifacts (MVTec AD has its own license; never commit it)
+data/
+outputs/
+*.pth
+*.pt
+*.ckpt
+*.onnx
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Notebooks / Jupyter
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
