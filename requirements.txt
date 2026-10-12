@@ -1,0 +1,13 @@
+# Phase 1 dependencies.
+# Colab runtimes already ship torch/torchvision (CUDA build) plus numpy/matplotlib.
+# The environment notebook installs ONLY packages that are missing; it never
+# reinstalls an existing torch/torchvision (that would break the runtime's GPU support).
+
+torch>=2.0
+torchvision>=0.15
+numpy>=1.24
+matplotlib>=3.7
+pillow>=9.0
+pyyaml>=6.0
+tqdm>=4.65
+pandas>=2.0
