@@ -30,31 +30,53 @@ combination. No pretrained vision backbone will be used.
 ```text
 edge-aware-anomaly-detection/
 ├── notebooks/
-│   └── 01_environment_setup.ipynb   # verify runtime, install missing deps, import src, seeds
+│   ├── 01_environment_setup.ipynb   # verify runtime, install missing deps, import src, seeds
+│   └── 02_dataset_inspection.ipynb  # download/verify MVTec AD, then dataset validation
 ├── src/
 │   ├── __init__.py
-│   └── config.py                    # SEED, set_seed(), find_repo_root(), Paths, get_device()
+│   ├── config.py                    # SEED, set_seed(), find_repo_root(), Paths, get_device()
+│   └── data/
+│       ├── __init__.py
+│       └── dataset.py               # find_dataset_root(), scan_category(), summarize_layout()
 ├── requirements.txt                 # Phase-1 dependencies (installed only if missing)
+├── .env.example                     # optional notebook overrides (defaults live in the notebooks)
+├── .env                             # your local overrides (gitignored)
 ├── tests/                           # planned (Phase 2+)
 ├── configs/                         # planned (YAML experiment configs)
 └── outputs/                         # git-ignored experiment artifacts
 ```
 
-Planned additions: `notebooks/02_dataset_inspection.ipynb` … `06_evaluation_and_ablation.ipynb`,
-plus `src/data/`, `src/models/`, `src/losses/`, `src/anomaly/`, `src/evaluation/`.
+Planned additions: `notebooks/03_baseline_autoencoder.ipynb` … `06_evaluation_and_ablation.ipynb`,
+plus `src/models/`, `src/losses/`, `src/anomaly/`, `src/evaluation/`.
 
 ## Notebooks
 
 | Notebook | Purpose |
 |---|---|
 | `notebooks/01_environment_setup.ipynb` | Verify Python/PyTorch/GPU, install missing packages only, make `src` importable, set reproducibility seeds |
+| `notebooks/02_dataset_inspection.ipynb` | Download and verify the MVTec AD archive, then validate the extracted dataset |
+
+## Local environment file (`.env`)
+
+Optional overrides for notebook settings — the defaults live in the notebooks,
+so `.env` is **not** required to run anything:
+
+1. Copy `.env.example` to `.env`.
+2. Change a value only if you need to (e.g. a different `KAGGLE_DATASET` handle).
+3. Re-upload the repo folder to Colab (right-click → **Upload to Colab**) so the
+   runtime can read it.
+
+`.env` is gitignored; only `.env.example` (defaults) is tracked.
 
 ## Data
 
 The MVTec AD dataset is **not** included in this repository (license and size).
-See the dataset notebook for the official download procedure. The dataset root
-can be redirected with the `MVTEC_ROOT` environment variable, e.g. to a mounted
-Google Drive path on a Colab runtime.
+`notebooks/02_dataset_inspection.ipynb` downloads it from the public Kaggle
+mirror `thtuan/mvtecad-mvtec-anomaly-detection` (via `kagglehub`, no credentials)
+into Colab disk (`/content/datasets/mvtec/`, wiped on disconnect — re-run the
+cell per session). The original CC BY-NC-SA 4.0 terms still apply: attribute
+MVTec Software GmbH, non-commercial use. The dataset root can be redirected
+with the `MVTEC_ROOT` environment variable.
 
 ## Reproducibility
 
