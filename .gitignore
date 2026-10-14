@@ -1,6 +1,7 @@
 # Datasets and experiment artifacts (MVTec AD has its own license; never commit it)
-data/
-outputs/
+# Root-anchored: src/data/ is source code and must stay tracked.
+/data/
+/outputs/
 *.pth
 *.pt
 *.ckpt
@@ -12,6 +13,9 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+
+# Local environment values (MVTec download link is issued per person; never commit)
+.env
 
 # Notebooks / Jupyter
 .ipynb_checkpoints/
