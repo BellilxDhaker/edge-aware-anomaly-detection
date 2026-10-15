@@ -1,0 +1,35 @@
+# Baseline experiment configuration (notebooks/03_baseline_autoencoder.ipynb).
+#
+# Loaded by src/config.load_experiment_config(), which merges (later wins):
+#   DEFAULT_EXPERIMENT in src/config.py  ->  this file  ->  notebook overrides
+# Unknown keys and invalid values raise ValueError - nothing is coerced silently.
+#
+# Notes:
+#   - data.image_size must be divisible by 2 ** len(model.channel_mults)
+#     (the encoder pools once per stage). 256 / 32 = 8 -> 8x8 latent map.
+#   - train.lr is written as a plain decimal because YAML 1.1 (PyYAML) parses
+#     bare scientific literals like `1e-3` as strings.
+
+experiment_name: baseline_bottle
+category: bottle
+seed: 42
+
+data:
+  image_size: 256          # 256x256: detail vs Colab GPU memory/speed trade-off
+  val_fraction: 0.1        # held-out NORMAL images (from train/good only)
+  batch_size: 16           # conservative for a T4 (16 GB); raise to 32 if it fits
+  num_workers: 2           # Colab/Linux; use 0 for local Windows notebook runs
+
+model:
+  in_channels: 3           # MVTec AD images are RGB
+  base_channels: 32        # stage i has base_channels * channel_mults[i] channels
+  channel_mults: [1, 2, 4, 8, 8]   # 5 stages: 256->128->64->32->16->8
+  latent_channels: 256     # channels of the 8x8 latent code after the 1x1 head
+  num_convs_per_stage: 2   # Conv->BN->ReLU blocks per stage
+
+train:
+  epochs: 30               # ~13 batches/epoch on bottle -> ~390 optimizer steps
+  optimizer: adam          # adam | adamw
+  lr: 0.001
+  weight_decay: 0.0
+  grad_clip: 1.0           # max grad norm; 0.0 disables clipping
