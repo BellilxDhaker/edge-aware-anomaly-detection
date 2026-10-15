@@ -7,6 +7,13 @@
 *.ckpt
 *.onnx
 
+# Dataset archives (multi-GB; download/extract them, never commit)
+*.tar
+*.tar.xz
+*.tar.gz
+*.tgz
+*.zip
+
 # Python
 __pycache__/
 *.py[cod]

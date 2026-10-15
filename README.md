@@ -6,7 +6,10 @@ The final system will compare a from-scratch CNN autoencoder baseline against
 multi-scale anomaly scoring, an edge-aware reconstruction loss, and their
 combination. No pretrained vision backbone will be used.
 
-**Status: Phase 1 — environment setup and dataset inspection. No model code yet.**
+**Status: Phase 2 - baseline convolutional autoencoder implemented and
+trainable end to end (`notebooks/03_baseline_autoencoder.ipynb`). Research
+improvements (multi-scale scoring, edge-aware loss, evaluation/ablation)
+are still to come.**
 
 ## Development workflow
 
@@ -31,23 +34,38 @@ combination. No pretrained vision backbone will be used.
 edge-aware-anomaly-detection/
 ├── notebooks/
 │   ├── 01_environment_setup.ipynb   # verify runtime, install missing deps, import src, seeds
-│   └── 02_dataset_inspection.ipynb  # download/verify MVTec AD, then dataset validation
+│   ├── 02_dataset_inspection.ipynb  # download/verify MVTec AD, then dataset validation
+│   └── 03_baseline_autoencoder.ipynb# train the from-scratch AE baseline on bottle
 ├── src/
 │   ├── __init__.py
-│   ├── config.py                    # SEED, set_seed(), find_repo_root(), Paths, get_device()
-│   └── data/
+│   ├── config.py                    # SEED, set_seed(), find_repo_root(), Paths, get_device(),
+│   │                                # ExperimentConfig + load/save_experiment_config()
+│   ├── data/
+│   │   ├── __init__.py
+│   │   └── dataset.py               # find_dataset_root(), scan_category(), summarize_layout(),
+│   │                                # NormalImageDataset, create_dataloaders()
+│   ├── models/
+│   │   ├── __init__.py              # Autoencoder re-exports, tensor_shape_report()
+│   │   ├── encoder.py               # Encoder + ConvBlock (random init, no skips)
+│   │   ├── decoder.py               # Decoder (nearest-upsample + sigmoid head)
+│   │   └── autoencoder.py           # Autoencoder = encoder + decoder, param counting
+│   ├── losses/
+│   │   ├── __init__.py
+│   │   └── reconstruction.py        # MSE criterion, per_image_mse, absolute_error_map
+│   └── training/
 │       ├── __init__.py
-│       └── dataset.py               # find_dataset_root(), scan_category(), summarize_layout()
-├── requirements.txt                 # Phase-1 dependencies (installed only if missing)
+│       └── trainer.py               # Trainer (fit/validate/checkpoint/resume), build_optimizer
+├── configs/
+│   └── default.yaml                 # baseline experiment configuration (single source of truth)
+├── requirements.txt                 # dependencies (installed only if missing)
 ├── .env.example                     # optional notebook overrides (defaults live in the notebooks)
 ├── .env                             # your local overrides (gitignored)
-├── tests/                           # planned (Phase 2+)
-├── configs/                         # planned (YAML experiment configs)
-└── outputs/                         # git-ignored experiment artifacts
+├── tests/                           # planned
+└── outputs/                         # git-ignored run artifacts (checkpoints, figures, history)
 ```
 
-Planned additions: `notebooks/03_baseline_autoencoder.ipynb` … `06_evaluation_and_ablation.ipynb`,
-plus `src/models/`, `src/losses/`, `src/anomaly/`, `src/evaluation/`.
+Planned additions: `notebooks/04_...` through `06_evaluation_and_ablation.ipynb`,
+plus `src/anomaly/` and `src/evaluation/`.
 
 ## Notebooks
 
@@ -55,6 +73,28 @@ plus `src/models/`, `src/losses/`, `src/anomaly/`, `src/evaluation/`.
 |---|---|
 | `notebooks/01_environment_setup.ipynb` | Verify Python/PyTorch/GPU, install missing packages only, make `src` importable, set reproducibility seeds |
 | `notebooks/02_dataset_inspection.ipynb` | Download and verify the MVTec AD archive, then validate the extracted dataset |
+| `notebooks/03_baseline_autoencoder.ipynb` | Train the from-scratch convolutional autoencoder baseline on normal `bottle` images; reconstruction analysis on normal data only |
+
+## The baseline (Phase 2)
+
+A compact convolutional autoencoder trained **from random initialisation** on
+`bottle/train/good` only:
+
+- 256x256 RGB inputs, `ToTensor` to float32 `[0, 1]`; decoder ends in a
+  sigmoid so both sides share that range.
+- Encoder: 5 stages of `Conv3x3 -> BatchNorm -> ReLU` (x2) + `MaxPool2d(2)`,
+  then a 1x1 bottleneck to a `256x8x8` latent (12x fewer elements than the
+  input). No skip connections - the decoder only sees the compressed code.
+- Decoder: nearest-neighbour upsampling + mirrored conv stages + sigmoid head.
+- Loss: mean squared error (`src/losses/reconstruction.py`); optimizer Adam,
+  defaults in `configs/default.yaml` (batch 16, lr 1e-3, 30 epochs).
+- `Trainer` records per-epoch train/validation losses, detects non-finite
+  losses, saves `last.pt`/`best.pt`, `history.json`, `config.yaml` and
+  `metadata.json` under `outputs/runs/<experiment_name>/` (git-ignored), and
+  supports resuming from a checkpoint.
+
+Anomalous test images, ground-truth masks and pretrained weights are never
+used for training, tuning or checkpoint selection.
 
 ## Local environment file (`.env`)
 
@@ -82,4 +122,7 @@ with the `MVTEC_ROOT` environment variable.
 
 `src/config.py` exposes `SEED` and `set_seed()`, which seed Python's `random`,
 NumPy (if installed) and PyTorch/CUDA (if installed), and force cuDNN toward
-deterministic kernels. Every training entry point will call it.
+deterministic kernels. Every training entry point calls it. Experiment
+hyperparameters live in `configs/default.yaml`, loaded through
+`load_experiment_config()` (validated, YAML + notebook overrides), and the
+fully resolved config is saved next to each run's checkpoints.
