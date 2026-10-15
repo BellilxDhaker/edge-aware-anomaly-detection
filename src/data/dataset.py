@@ -1,7 +1,6 @@
-"""Dataset discovery and validation helpers for MVTec AD (Stage 2 inspection).
+"""Dataset discovery, validation and PyTorch loading for MVTec AD.
 
-The inspection notebook (``notebooks/02_dataset_inspection.ipynb``) calls these
-helpers instead of hard-coding paths:
+Inspection helpers (Stages 1-2, used by ``notebooks/02_dataset_inspection.ipynb``):
 
 * :func:`find_dataset_root` - locate the folder that directly contains the
   category directories (``bottle/``, ``cable/``, ...). The extraction layout is
@@ -12,10 +11,21 @@ helpers instead of hard-coding paths:
 * :func:`summarize_layout` - per-split, per-defect file counts for every
   category.
 
+Training data pipeline (Stage 3, used by ``notebooks/03_baseline_autoencoder.ipynb``):
+
+* :func:`list_image_files` / :func:`split_train_val` - deterministic file
+  listing and reproducible train/validation splitting of NORMAL images only.
+* :class:`NormalImageDataset` - map-style ``torch.utils.data.Dataset`` that
+  loads RGB images, resizes them and returns float32 tensors in ``[0, 1]``.
+* :func:`create_dataloaders` - builds the training (and optional validation)
+  ``DataLoader``s straight from ``<category>/train/good``.
+
 Rules honoured by this module:
 
-* PyTorch is never imported at module load time (same rule as ``src/config.py``),
-  so a fresh runtime can import it before dependencies are verified.
+* The inspection helpers must stay importable before dependencies are
+  verified, so PyTorch/torchvision are imported behind a guard: the
+  training dataset classes fail fast with a clear message when torch is
+  missing, while discovery/validation keep working.
 * Problems are returned in the report - nothing is ever skipped silently.
 * The official split is never modified: training material comes from
   ``train/good`` only; ``test/`` and ``ground_truth/`` are for inspection and
@@ -25,12 +35,21 @@ Rules honoured by this module:
 from __future__ import annotations
 
 import os
+import random
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, Union
 
 from PIL import Image
+
+try:  # torch is optional at import time; needed only for the training pipeline
+    import torch
+    from torch.utils.data import DataLoader, Dataset as _TorchDataset
+except ImportError:  # pragma: no cover - exercised only in torch-less environments
+    torch = None  # type: ignore[assignment]
+    DataLoader = None  # type: ignore[assignment]
+    _TorchDataset = object  # type: ignore[assignment,misc]
 
 CATEGORIES: Tuple[str, ...] = (
     "bottle",
@@ -386,3 +405,213 @@ def scan_category(root: Path, category: str, *, verify_images: bool = True) -> C
                 _verify_mask(mask, expected, report)
 
     return report
+
+
+# ---------------------------------------------------------------------------
+# Stage 3 - PyTorch datasets for training on NORMAL images only
+# ---------------------------------------------------------------------------
+
+IMAGE_EXTENSIONS: Tuple[str, ...] = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
+
+
+def _require_torch() -> None:
+    if torch is None:
+        raise RuntimeError(
+            "PyTorch is required for the training data pipeline but is not "
+            "importable. On Colab: reconnect to a GPU runtime. Locally: "
+            "pip install torch torchvision (see requirements.txt)."
+        )
+
+
+def list_image_files(directory: Union[Path, str]) -> List[Path]:
+    """Return the sorted image files directly inside *directory*.
+
+    Raises :class:`FileNotFoundError` when the folder is missing or holds no
+    recognisable image files - an empty training set must never pass silently.
+    """
+    directory = Path(directory)
+    if not directory.is_dir():
+        raise FileNotFoundError(f"Image directory not found: {directory}")
+    files = sorted(
+        p
+        for p in directory.iterdir()
+        if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
+    )
+    if not files:
+        raise FileNotFoundError(
+            f"No image files {IMAGE_EXTENSIONS} found in {directory}. "
+            "Check the dataset extraction (notebook 02) before training."
+        )
+    return files
+
+
+def split_train_val(
+    image_paths: Sequence[Union[Path, str]],
+    val_fraction: float,
+    seed: int,
+) -> Tuple[List[Path], List[Path]]:
+    """Split *image_paths* into (train, validation) with a reproducible seed.
+
+    The split is done on sorted file paths with ``random.Random(seed)``, so it
+    depends only on the path list and the seed - not on DataLoader worker
+    count, filesystem order or wall-clock time. Only pass NORMAL images here;
+    the official test set must never be split off for validation.
+    """
+    if not 0.0 <= val_fraction < 0.5:
+        raise ValueError(f"val_fraction must be in [0.0, 0.5), got {val_fraction!r}")
+    paths = sorted(Path(p) for p in image_paths)
+    n = len(paths)
+    if n == 0:
+        raise ValueError("split_train_val received an empty path list")
+    if val_fraction == 0.0 or n == 1:
+        return paths, []
+    n_val = max(1, min(int(round(n * val_fraction)), n - 1))
+    indices = list(range(n))
+    random.Random(seed).shuffle(indices)
+    val_indices = sorted(indices[:n_val])
+    train_indices = sorted(indices[n_val:])
+    return [paths[i] for i in train_indices], [paths[i] for i in val_indices]
+
+
+def build_transform(image_size: int):
+    """PIL image -> float32 CHW tensor of shape ``(3, image_size, image_size)``.
+
+    Normalisation strategy (documented on purpose, the decoder must match it):
+
+    * ``Resize`` to ``(image_size, image_size)`` - MVTec AD images are square
+      (e.g. 900x900 for bottle), so no aspect ratio is distorted.
+    * ``ToTensor`` scales uint8 pixels ``[0, 255]`` to float32 ``[0, 1]`` and
+      moves the channel axis from last (HWC) to first (CHW).
+
+    No mean/std standardisation is applied: reconstruction targets and model
+    outputs then share the exact ``[0, 1]`` range, which pairs with a sigmoid
+    output activation and keeps pixel-wise error maps directly interpretable.
+    """
+    _require_torch()
+    from torchvision import transforms
+
+    return transforms.Compose(
+        [
+            transforms.Resize((image_size, image_size), antialias=True),
+            transforms.ToTensor(),
+        ]
+    )
+
+
+class NormalImageDataset(_TorchDataset):
+    """Map-style dataset of defect-free training images.
+
+    Each item is a dict ``{"image": FloatTensor[3, H, W] in [0, 1], "path": str}``
+    so notebooks can show reconstructions next to their source files. A file
+    that fails to decode raises :class:`RuntimeError` naming the path - files
+    are never skipped silently (notebook 02 already verified every image).
+    """
+
+    def __init__(self, image_paths: Sequence[Union[Path, str]], transform) -> None:
+        _require_torch()
+        self.image_paths: List[Path] = [Path(p) for p in image_paths]
+        if not self.image_paths:
+            raise ValueError("NormalImageDataset requires at least one image path")
+        if transform is None:
+            raise ValueError("NormalImageDataset requires a transform (see build_transform)")
+        self.transform = transform
+
+    def __len__(self) -> int:
+        return len(self.image_paths)
+
+    def __getitem__(self, index: int) -> Dict[str, object]:
+        path = self.image_paths[index]
+        try:
+            with Image.open(path) as img:
+                image = img.convert("RGB")  # grayscale/RGBA files -> consistent 3 channels
+                tensor = self.transform(image)
+        except Exception as exc:  # noqa: BLE001 - the path must appear in the error
+            raise RuntimeError(f"Failed to load image {path}: {exc}") from exc
+        if not torch.is_tensor(tensor) or tensor.ndim != 3 or tensor.shape[0] != 3:
+            raise RuntimeError(
+                f"Transform of {path} produced {type(tensor).__name__} "
+                f"with shape {getattr(tensor, 'shape', None)}; expected a CHW tensor with 3 channels."
+            )
+        return {"image": tensor, "path": str(path)}
+
+
+def create_dataloaders(
+    dataset_root: Union[Path, str],
+    category: str = "bottle",
+    image_size: int = 256,
+    batch_size: int = 16,
+    val_fraction: float = 0.1,
+    seed: int = 42,
+    num_workers: int = 2,
+    pin_memory: bool = False,
+) -> Tuple["DataLoader", Optional["DataLoader"], Dict[str, object]]:
+    """Build train/validation dataloaders from ``<root>/<category>/train/good``.
+
+    Only the normal training folder is read - ``test/`` and ``ground_truth/``
+    are never opened here, so anomalous images cannot leak into training or
+    into model selection. The validation split (when ``val_fraction > 0``)
+    consists solely of held-out normal images drawn with *seed*.
+
+    Returns ``(train_loader, val_loader_or_None, split_info)`` where
+    ``split_info`` records the split for reproducibility/auditing.
+
+    Notes:
+        * ``drop_last=True`` on the training loader keeps every batch the same
+          size (BatchNorm statistics stay comparable); the remainder images are
+          still used across epochs because the sampler reshuffles. The
+          validation loader keeps its (possibly shorter) final batch.
+        * On Windows local runs, set ``num_workers=0`` (spawned workers and
+          notebooks mix poorly); Colab (Linux) is fine with 2.
+    """
+    _require_torch()
+    root = Path(dataset_root)
+    train_good_dir = root / category / "train" / GOOD
+    all_paths = list_image_files(train_good_dir)
+    train_paths, val_paths = split_train_val(all_paths, val_fraction, seed)
+
+    transform = build_transform(image_size)
+    train_dataset = NormalImageDataset(train_paths, transform)
+    val_dataset = NormalImageDataset(val_paths, transform) if val_paths else None
+
+    if len(train_dataset) < batch_size:
+        raise ValueError(
+            f"Training set has {len(train_dataset)} images but batch_size={batch_size} "
+            "with drop_last=True would yield zero batches. Reduce data.batch_size "
+            f"(must be <= {len(train_dataset)})."
+        )
+
+    generator = torch.Generator()
+    generator.manual_seed(seed)
+    common = dict(
+        batch_size=batch_size,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=num_workers > 0,
+    )
+    train_loader = DataLoader(
+        train_dataset,
+        shuffle=True,  # epoch-wise order changes; seeded generator makes it reproducible
+        drop_last=True,
+        generator=generator,
+        **common,
+    )
+    val_loader = (
+        DataLoader(val_dataset, shuffle=False, drop_last=False, **common)
+        if val_dataset is not None
+        else None
+    )
+
+    split_info: Dict[str, object] = {
+        "dataset_root": str(root),
+        "category": category,
+        "image_size": image_size,
+        "batch_size": batch_size,
+        "val_fraction": val_fraction,
+        "seed": seed,
+        "n_all_train_good": len(all_paths),
+        "n_train": len(train_paths),
+        "n_val": len(val_paths),
+        "train_paths": [str(p) for p in train_paths],
+        "val_paths": [str(p) for p in val_paths],
+    }
+    return train_loader, val_loader, split_info
