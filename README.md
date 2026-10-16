@@ -90,6 +90,8 @@ in a possible `notebooks/06_...`, plus a real `tests/` suite.
 | `notebooks/01_environment_setup.ipynb` | Verify Python/PyTorch/GPU, install missing packages only, make `src` importable, set reproducibility seeds |
 | `notebooks/02_dataset_inspection.ipynb` | Download and verify the MVTec AD archive, then validate the extracted dataset |
 | `notebooks/03_baseline_autoencoder.ipynb` | Train the from-scratch convolutional autoencoder baseline on normal `bottle` images; reconstruction analysis on normal data only |
+| `notebooks/04_anomaly_detection.ipynb` | Phase 3: validate the trained checkpoint, pixel-wise anomaly scoring, heatmaps/thresholding, test-set inference, metrics and visualisations |
+| `notebooks/05_research_improvements.ipynb` | Phase 4: train baseline + edge-aware autoencoders from the same seed, compare baseline / multi-scale / edge-aware / combined under one evaluation protocol, save `comparison.json` with metrics and limitations |
 
 ## The baseline (Phase 2)
 
