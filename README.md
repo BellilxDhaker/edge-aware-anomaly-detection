@@ -6,10 +6,14 @@ The final system will compare a from-scratch CNN autoencoder baseline against
 multi-scale anomaly scoring, an edge-aware reconstruction loss, and their
 combination. No pretrained vision backbone will be used.
 
-**Status: Phase 2 - baseline convolutional autoencoder implemented and
-trainable end to end (`notebooks/03_baseline_autoencoder.ipynb`). Research
-improvements (multi-scale scoring, edge-aware loss, evaluation/ablation)
-are still to come.**
+**Status: Phase 4 complete - multi-scale scoring (`src/anomaly/multiscale.py`),
+the edge-aware reconstruction loss (`src/losses/edge_aware.py`) and the shared
+comparison protocol (`src/evaluation/protocol.py`) are implemented and verified;
+`notebooks/05_research_improvements.ipynb` trains baseline and edge-aware models
+from random init, evaluates all four configurations under one protocol and saves
+`comparison.json` (config, seed, checkpoints, metrics, limitations). Metric
+values are reported only by executing that notebook on the trained models -
+never hand-written here.**
 
 ## Development workflow
 
@@ -64,8 +68,8 @@ edge-aware-anomaly-detection/
 └── outputs/                         # git-ignored run artifacts (checkpoints, figures, history)
 ```
 
-Planned additions: `notebooks/04_...` through `06_evaluation_and_ablation.ipynb`,
-plus `src/anomaly/` and `src/evaluation/`.
+Planned additions: further ablations (sweep λ / scales / weights / percentiles)
+in a possible `notebooks/06_...`, plus a real `tests/` suite.
 
 ## Notebooks
 
