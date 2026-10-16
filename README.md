@@ -39,7 +39,9 @@ edge-aware-anomaly-detection/
 ├── notebooks/
 │   ├── 01_environment_setup.ipynb   # verify runtime, install missing deps, import src, seeds
 │   ├── 02_dataset_inspection.ipynb  # download/verify MVTec AD, then dataset validation
-│   └── 03_baseline_autoencoder.ipynb# train the from-scratch AE baseline on bottle
+│   ├── 03_baseline_autoencoder.ipynb# train the from-scratch AE baseline on bottle
+│   ├── 04_anomaly_detection.ipynb   # Phase 3: validate checkpoint, score, heatmap, evaluate
+│   └── 05_research_improvements.ipynb # Phase 4: multi-scale + edge-aware vs baseline
 ├── src/
 │   ├── __init__.py
 │   ├── config.py                    # SEED, set_seed(), find_repo_root(), Paths, get_device(),
@@ -55,7 +57,17 @@ edge-aware-anomaly-detection/
 │   │   └── autoencoder.py           # Autoencoder = encoder + decoder, param counting
 │   ├── losses/
 │   │   ├── __init__.py
-│   │   └── reconstruction.py        # MSE criterion, per_image_mse, absolute_error_map
+│   │   ├── reconstruction.py        # MSE criterion, per_image_mse, absolute_error_map
+│   │   └── edge_aware.py            # Sobel gradient-magnitude term + EdgeAwareReconstructionLoss
+│   ├── anomaly/
+│   │   ├── __init__.py
+│   │   ├── scoring.py               # pixel-wise |I - x_hat| score maps + image scores
+│   │   ├── heatmap.py               # display-only heatmaps, overlays, threshold masks
+│   │   └── multiscale.py            # weighted multi-scale anomaly scoring (Phase 4)
+│   ├── evaluation/
+│   │   ├── __init__.py
+│   │   ├── metrics.py               # AUROC, average precision, Dice, IoU
+│   │   └── protocol.py              # shared evaluation protocol for config comparisons
 │   └── training/
 │       ├── __init__.py
 │       └── trainer.py               # Trainer (fit/validate/checkpoint/resume), build_optimizer
